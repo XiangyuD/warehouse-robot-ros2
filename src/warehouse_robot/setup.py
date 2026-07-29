@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             "robot_node = warehouse_robot.robot_node:main",
+            'monitor_node = warehouse_robot.monitor_node:main',
         ],
     },
 )
