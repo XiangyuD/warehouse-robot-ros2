@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int32, String
+from std_srvs.srv import Trigger
 
 
 class RobotNode(Node):
@@ -8,6 +9,13 @@ class RobotNode(Node):
     def __init__(self):
         super().__init__("robot_node")
 
+
+        self.status_service = self.create_service(
+            Trigger,
+            "get_robot_status",
+            self.get_status_callback
+        )
+        
         # 发布当前位置
         self.position_publisher = self.create_publisher(
             String,
@@ -143,6 +151,22 @@ class RobotNode(Node):
         battery_message = Int32()
         battery_message.data = self.battery
         self.battery_publisher.publish(battery_message)
+
+
+    def get_status_callback(self, request, response):
+        response.success = True
+
+        response.message = (
+            f"Position: x={self.x}, y=0 | "
+            f"State: {self.state} | "
+            f"Battery: {self.battery}%"
+        )
+
+        self.get_logger().info(
+            "Robot status requested"
+        )
+
+        return response
 
 
 def main(args=None):
