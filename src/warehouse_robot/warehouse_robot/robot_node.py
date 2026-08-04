@@ -1,50 +1,92 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int32
-from std_msgs.msg import String
+from std_msgs.msg import Int32, String
 
 
 class RobotNode(Node):
 
     def __init__(self):
-        super().__init__('robot_node')
+        super().__init__("robot_node")
 
-        # 发布机器人的当前位置
+        # 发布当前位置
         self.position_publisher = self.create_publisher(
             String,
-            'robot_position',
+            "robot_position",
+            10
+        )
+
+        # 发布机器人状态
+        self.state_publisher = self.create_publisher(
+            String,
+            "robot_state",
+            10
+        )
+
+        # 发布电量
+        self.battery_publisher = self.create_publisher(
+            Int32,
+            "robot_battery",
             10
         )
 
         # 接收目标位置
         self.goal_subscription = self.create_subscription(
             Int32,
-            'robot_goal',
+            "robot_goal",
             self.goal_callback,
             10
         )
 
-        # 每秒执行一次移动逻辑
+        # 每秒运行一次
         self.timer = self.create_timer(
             1.0,
-            self.move_robot
+            self.update_robot
         )
 
         self.x = 0
         self.goal_x = None
+        self.battery = 100
+        self.state = "IDLE"
 
-        self.get_logger().info('Warehouse robot started')
-        self.get_logger().info('Waiting for a goal...')
+        self.get_logger().info("Warehouse robot started")
+        self.get_logger().info("Waiting for a goal...")
 
     def goal_callback(self, message):
+        if self.state == "CHARGING":
+            self.get_logger().warning(
+                "Robot is charging and cannot accept a goal."
+            )
+            return
+
         self.goal_x = message.data
 
+        if self.goal_x == self.x:
+            self.state = "IDLE"
+            self.goal_x = None
+
+            self.get_logger().info(
+                f"Robot is already at x={self.x}"
+            )
+            return
+
+        self.state = "MOVING"
+
         self.get_logger().info(
-            f'New goal received: x={self.goal_x}'
+            f"New goal received: x={message.data}"
         )
+
+    def update_robot(self):
+        if self.state == "MOVING":
+            self.move_robot()
+
+        elif self.state == "CHARGING":
+            self.charge_robot()
+
+        self.publish_status()
 
     def move_robot(self):
         if self.goal_x is None:
+            self.state = "IDLE"
             return
 
         if self.x < self.goal_x:
@@ -53,18 +95,54 @@ class RobotNode(Node):
         elif self.x > self.goal_x:
             self.x -= 1
 
-        message = String()
-        message.data = f'Robot position: x={self.x}, y=0'
+        self.battery = max(self.battery - 5, 0)
 
-        self.position_publisher.publish(message)
-        self.get_logger().info(message.data)
+        self.get_logger().info(
+            f"Moving: x={self.x}, battery={self.battery}%"
+        )
 
         if self.x == self.goal_x:
             self.get_logger().info(
-                f'Goal reached: x={self.goal_x}'
+                f"Goal reached: x={self.goal_x}"
             )
 
             self.goal_x = None
+            self.state = "IDLE"
+
+        if self.battery < 20:
+            self.goal_x = None
+            self.state = "CHARGING"
+
+            self.get_logger().warning(
+                "Battery is low. Robot entered CHARGING state."
+            )
+
+    def charge_robot(self):
+        self.battery = min(self.battery + 10, 100)
+
+        self.get_logger().info(
+            f"Charging: battery={self.battery}%"
+        )
+
+        if self.battery >= 80:
+            self.state = "IDLE"
+
+            self.get_logger().info(
+                "Charging complete. Robot is IDLE."
+            )
+
+    def publish_status(self):
+        position_message = String()
+        position_message.data = f"x={self.x}, y=0"
+        self.position_publisher.publish(position_message)
+
+        state_message = String()
+        state_message.data = self.state
+        self.state_publisher.publish(state_message)
+
+        battery_message = Int32()
+        battery_message.data = self.battery
+        self.battery_publisher.publish(battery_message)
 
 
 def main(args=None):
@@ -81,5 +159,5 @@ def main(args=None):
         rclpy.shutdown()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
