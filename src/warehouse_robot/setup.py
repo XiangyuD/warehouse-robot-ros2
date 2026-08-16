@@ -28,6 +28,7 @@ setup(
             "robot_node = warehouse_robot.robot_node:main",
             'monitor_node = warehouse_robot.monitor_node:main',
             "status_client = warehouse_robot.status_client:main",
+            "action_server = warehouse_robot.action_server:main",
         ],
     },
 )
