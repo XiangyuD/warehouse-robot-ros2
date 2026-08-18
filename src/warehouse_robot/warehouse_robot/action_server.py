@@ -1,68 +1,83 @@
+import time
+
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionServer
 
-from example_interfaces.action import Fibonacci
+from warehouse_robot_interfaces.action import MoveRobot
 
 
-class RobotActionServer(Node):
+class MoveRobotActionServer(Node):
 
     def __init__(self):
-        super().__init__("robot_action_server")
+        super().__init__("move_robot_action_server")
+
+        self.current_x = 0
 
         self.action_server = ActionServer(
             self,
-            Fibonacci,
+            MoveRobot,
             "move_robot",
             self.execute_callback
         )
 
         self.get_logger().info(
-            "Robot action server started"
+            "MoveRobot action server started"
         )
 
     def execute_callback(self, goal_handle):
+        target_x = goal_handle.request.target_x
 
         self.get_logger().info(
-            "Received new robot goal"
+            f"Received goal: target_x={target_x}"
         )
 
-        feedback_msg = Fibonacci.Feedback()
+        feedback = MoveRobot.Feedback()
 
-        sequence = [0, 1]
+        while self.current_x != target_x:
 
-        for i in range(
-            1,
-            goal_handle.request.order
-        ):
-            sequence.append(
-                sequence[i] + sequence[i - 1]
+            if self.current_x < target_x:
+                self.current_x += 1
+            else:
+                self.current_x -= 1
+
+            feedback.current_x = self.current_x
+
+            goal_handle.publish_feedback(feedback)
+
+            self.get_logger().info(
+                f"Moving... current_x={self.current_x}"
             )
 
-            feedback_msg.sequence = sequence.copy()
-
-            goal_handle.publish_feedback(
-                feedback_msg
-            )
+            time.sleep(1)
 
         goal_handle.succeed()
 
-        result = Fibonacci.Result()
-        result.sequence = sequence
+        result = MoveRobot.Result()
+        result.success = True
+        result.message = (
+            f"Robot reached target x={target_x}"
+        )
+
+        self.get_logger().info(
+            result.message
+        )
 
         return result
 
 
 def main(args=None):
-
     rclpy.init(args=args)
 
-    node = RobotActionServer()
+    node = MoveRobotActionServer()
 
-    rclpy.spin(node)
-
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":
