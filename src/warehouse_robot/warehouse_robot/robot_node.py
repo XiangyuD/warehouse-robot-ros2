@@ -8,12 +8,15 @@ import time
 from rclpy.action import ActionServer, CancelResponse
 from warehouse_robot_interfaces.action import MoveRobot
 
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
+
 
 class RobotNode(Node):
 
     def __init__(self):
         super().__init__("robot_node")
-
+        
 
         self.status_service = self.create_service(
             Trigger,
@@ -49,13 +52,15 @@ class RobotNode(Node):
             self.goal_callback,
             10
         )
-
+        
+        self.action_callback_group = ReentrantCallbackGroup()
         self.move_action_server = ActionServer(
             self,
             MoveRobot,
             "move_robot",
             self.execute_move_callback,
-            cancel_callback=self.cancel_callback
+            cancel_callback=self.cancel_callback,
+            callback_group=self.action_callback_group
         )
 
         # 每秒运行一次
@@ -71,6 +76,8 @@ class RobotNode(Node):
 
         self.get_logger().info("Warehouse robot started")
         self.get_logger().info("Waiting for a goal...")
+
+        
 
     def goal_callback(self, message):
         if self.state == "CHARGING":
@@ -237,7 +244,7 @@ class RobotNode(Node):
                 self.x -= 1
 
             self.battery = max(
-                self.battery - 5,
+                self.battery - 1,
                 0
             )
 
@@ -280,11 +287,15 @@ def main(args=None):
 
     node = RobotNode()
 
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
+
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 
