@@ -3,6 +3,11 @@ from rclpy.node import Node
 from std_msgs.msg import Int32, String
 from std_srvs.srv import Trigger
 
+import time
+
+from rclpy.action import ActionServer, CancelResponse
+from warehouse_robot_interfaces.action import MoveRobot
+
 
 class RobotNode(Node):
 
@@ -43,6 +48,14 @@ class RobotNode(Node):
             "robot_goal",
             self.goal_callback,
             10
+        )
+
+        self.move_action_server = ActionServer(
+            self,
+            MoveRobot,
+            "move_robot",
+            self.execute_move_callback,
+            cancel_callback=self.cancel_callback
         )
 
         # 每秒运行一次
@@ -167,6 +180,99 @@ class RobotNode(Node):
         )
 
         return response
+
+
+    def execute_move_callback(self, goal_handle):
+        target_x = goal_handle.request.target_x
+
+        self.get_logger().info(
+            f"Action goal received: target_x={target_x}"
+        )
+
+        if self.state == "CHARGING":
+            goal_handle.abort()
+
+            result = MoveRobot.Result()
+            result.success = False
+            result.message = "Robot is charging"
+
+            return result
+
+        self.goal_x = target_x
+        self.state = "MOVING"
+
+        feedback = MoveRobot.Feedback()
+
+        while self.x != target_x:
+
+            if goal_handle.is_cancel_requested:
+                self.state = "IDLE"
+                self.goal_x = None
+
+                goal_handle.canceled()
+
+                result = MoveRobot.Result()
+                result.success = False
+                result.message = f"Movement canceled at x={self.x}"
+
+                self.get_logger().info(result.message)
+
+                return result
+
+            if self.battery < 20:
+                self.state = "CHARGING"
+                self.goal_x = None
+
+                goal_handle.abort()
+
+                result = MoveRobot.Result()
+                result.success = False
+                result.message = "Battery too low"
+
+                return result
+
+            if self.x < target_x:
+                self.x += 1
+            else:
+                self.x -= 1
+
+            self.battery = max(
+                self.battery - 5,
+                0
+            )
+
+            feedback.current_x = self.x
+
+            goal_handle.publish_feedback(
+                feedback
+            )
+
+            self.publish_status()
+
+            self.get_logger().info(
+                f"Moving: x={self.x}, "
+                f"battery={self.battery}%"
+            )
+
+            time.sleep(1)
+
+        self.goal_x = None
+        self.state = "IDLE"
+
+        self.publish_status()
+
+        goal_handle.succeed()
+
+        result = MoveRobot.Result()
+        result.success = True
+        result.message = (
+            f"Robot reached x={target_x}"
+        )
+
+        return result
+    def cancel_callback(self, goal_handle):
+        self.get_logger().info("Cancel request received")
+        return CancelResponse.ACCEPT
 
 
 def main(args=None):
